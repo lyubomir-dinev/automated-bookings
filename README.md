@@ -263,23 +263,44 @@ __Notes:__ the function ```findContours``` accepts a mode parameter which dictat
 
 #### 3.2. BE - Contour processing
 
-Each contour was then processed the relevant information was extracted/optimized: 
+Each contour was then processed and the relevant information was extracted/optimized: 
 
-```python 
-
+```python
     for idx, contour in enumerate(contours):
+```
+
+1. Starting with calculating a bounding shape - a __box__ if we're processing the desk contours or an __ellipse__ for everything else
+
+```python
         (x,y),(w,h),angle = approximationType == "ellipse" and cv2.fitEllipseDirect(contour) or cv2.minAreaRect(contour)
         polygon = np.array([contour[:, 0, :]])
         [x1,y1,tw,th] = lir_within_polygon.largest_interior_rectangle(polygon)
         midX1 = x1 + tw/2
         midY1 = y1 + th/2
         angle = math.floor(angle)
+```
 
+2. With that information available we start constructing the actual contour payload object. For the rectangular contours (__desks__) we also add the __width__ and __height__ of the contour. This helps with the drawing of SVG boxes, saving on the calculation on the FE. 
+
+```python 
         contours[idx] = {"id": str(uuid.uuid4()), "angle": int(angle), "center": {"x": int(x), "y": int(y)}, "innerRect": {"width": int(tw), "height": int(th), "x": int(midX1), "y": int(midY1)}}
         if(approximationType=="rect"):
             contours[idx]["width"] = int(w)
             contours[idx]["height"] = int(h)
+```
 
+3. The script would support 2 different types of ```vertice``` generation. The __optimised__ approach is supported only for layouts that contain only straight lines. The intention is to reduce as much as possible the number of generated vertices and as a result of that reducing the stored data, transferred data between the BE and FE, number of vertices rendered on the FE and ultimately memory used by the application. The __non-optimised__ approach is used for layouts that contain curves and complex polygons. In those cases, approximating a good number of vertices is not fesible for the BE. 
+
+    The key function used as part of the __optimised__ approach is ```goodFeaturesToTrack```. It accepts 4 main parameters:
+    
+    - ```image``` - the image to be processed
+    - ```maxCorners``` - the maximum number of corners to be identified
+    - ```qualityLevel``` - the minimum quality level of the corners to be identified
+    - ```minDistance``` - the minimum distance between the identified corners
+    
+    Adjusting the latter 3 parameters allows for a good balance between the number of vertices and the accuracy of the contour. The ```goodFeaturesToTrack``` function returns a list of corners which are then sorted in a clockwise fashion.
+
+```python
         if optimise_vertices:
             contour_mask = np.zeros(mask.shape, np.uint8)
             contour_mask = cv2.fillPoly(contour_mask, pts=[contour], color=(255, 255, 255))
@@ -287,12 +308,16 @@ Each contour was then processed the relevant information was extracted/optimized
             contours[idx]["vertices"] = sortCorners(contour, [[int(c[0]), int(c[1])] for c in corners[:, 0, :]])
         else:
             contours[idx]["vertices"] = contour[:, 0, :]
+```
+
+4. The final step is to cache the top left vertice of the contour and calculate the area of the contour.
+
+    - The ```getMinXY``` function was used to identify the top left corner of the contour of each contour, keep a global track of those coordinates for later use as a translation basis of all contour vertices in order to remove any unnecessary padding from the produced data set.
+    - The ```area``` was calculated using the ```contourArea``` function which calculates the area of the contour using the Green's theorem and was used after all contourls have been identified to sort them in an ascending order for the largest having the smallest "z-index". This reduced the risk of incorrectly ordering the polygins when drawing them on the SVG in the UX.
+
+
+```python 
         getMinXY(contours[idx]["vertices"])
         contours[idx]["area"] = int(cv2.contourArea(np.array(contours[idx]["vertices"])))
         contours[idx]["vertices"] = [{'x': int(sublist[0]), 'y': int(sublist[1])} for sublist in contours[idx]["vertices"]]
-
-    if name not in contoursCache.keys():
-        contoursCache[name] = contours
 ```
-
-__Notes:__ The ```approximationType``` was dictated by the feature that was currently being extracted - if it was a __desk__ it would a __rectangle__ and otherwise it would default to an __ellipse__. The ```optimise_vertices``` flag was used to dictate whether the vertices of the contour should be optimized or not. The optimization was a feature that was developed at a later stage when it was identified that for shapes that don't contain curves, the script could produce a much smaller set of vertice coordinates. The optimization itself done by using the ```goodFeaturesToTrack``` function which identifies the corners of the contour and then sorts them in a clockwise fashion. The ```getMinXY``` function was used to identify the top left corner of the contour of each contour, keep a global track of those coordinates for later use as a translation basis of all contour vertices in order to remove any unnecessary padding from the produced data set. The ```area``` was calculated using the ```contourArea``` function which calculates the area of the contour using the Green's theorem and was used after all contours have been identified to sort them in an ascending order for the largest having the smallest "z-index". This reduced the risk of incorrectly ordering the polygins when drawing them on the SVG in the UX.
