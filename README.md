@@ -8,6 +8,7 @@
     1.2. [Internal requirements](#12-internal-requirements)
 
     1.3. [Available services and models](#13-available-services-and-models)
+
 2. [Exploration and estimates](#2-exploration-and-estimates)
 
     2.1. [Front end manipulation of the data](#21-front-end-manipulation-of-the-data)
@@ -16,7 +17,19 @@
 
     2.1.2. [Procedural approach](#212-procedural-approach)
 
+    2.2. [Data generation and storage](#22-data-generation-and-storage)
+
+    2.3. [Estimates](#23-estimates)
+
+3. [Implementation](#3-implementation)
+    
+    3.1. [BE - Masking the input image](#31-be---masking-the-input-image)
+
+    3.2. [BE - Contour processing](#32-be---contour-processing)
+
+
 ### 1. Background and requirements
+
 #### 1.1. Business requirements
 Clients wanted a system where they can manage and monitor the bookings of desks and rooms. The system needed to support the following:
 
@@ -51,8 +64,8 @@ userId | varchar (uuid) - _FK_
 bookingStart | timestamp
 bookingEnd | timestamp
 
-
 ---
+
 ### 2. Exploration and estimates
 
 The problem was split into two separate domains:
@@ -71,3 +84,215 @@ ___As such, this approach was discarded!.___
 
 ##### 2.1.2. Procedural approach
 The idea was to generate data describing the rooms, desks and overal office layout based on a visual input provided by the design team in the form of a PNG image of an office layout schematic. The image would be read by OpenCV and the relevant artefacts would be identified and extracted as a collection of objects containing vertices, dimensions and other metadata.
+
+This data would then be plugged be used to generate an SVG on the FE allowing for event handlers to be assigned against the elements of interest, thus adding interractivity to the layout. Although this approach meant more more ground work was needed and a robust be to be created, it was the most flexible and maintainable solution.
+
+#### 2.2. Data generation and storage
+OpenCV was the chosen technology that would process the input image and generate the tokenized output. A decision was made to use Python instead of C++ as the language of choice for the back end as it there was bettern knowledge within the wider team. 
+
+As there was an existing service for handling room bookings, the decision was made to refactor and addapt it to the new model and to write the Python code as a stand alone script to be called by the existing Golang service framework.
+
+The Python script would produce an output similar to the following format:
+
+```JSON
+{
+	"walls": [
+		{
+			"id": "392745fd-c7a3-4ebd-88b4-ed6fc7c7c346",
+			"center": { "x": 5036.4609375, "y": 3203.640380859375 },
+			"angle": 0,
+			"vertices": [
+				{ "x": 4818, "y": 2667 },
+				{ "x": 5257, "y": 2667 },
+				...
+			]
+		},
+		...
+	],
+	"desks": [
+		{
+			"id": "392745fd-c7a3-4ebd-88b4-ed6fc7c7c346",
+			"center": { "x": 5871.74853515625, "y": 4129.25146484375 },
+			"angle": 45,
+			"vertices": [
+				{ "x": 5849, "y": 4020 },
+				{ "x": 5850, "y": 4020 },
+				...
+			]
+		},
+		...
+	],
+	"collaboration_areas": [],
+	"meeting_rooms": [
+		{
+			"id": "392745fd-c7a3-4ebd-88b4-ed6fc7c7c346",
+			"center": { "x": 6239.53125, "y": 4774.79443359375 },
+			"angle": 45,
+			"vertices": [
+				{ "x": 6122, "y": 4298 },
+				{ "x": 6123, "y": 4298 },
+				...
+			]
+		},
+		...
+	],
+	"zones_of_interest": [
+		{
+			"id": "392745fd-c7a3-4ebd-88b4-ed6fc7c7c346",
+			"center": { "x": 4540.28955078125, "y": 5284.7392578125 },
+			"angle": 0,
+			"vertices": [
+				{ "x": 4429, "y": 5026 },
+				{ "x": 4431, "y": 5026 },
+				...
+			]
+		},
+		...
+	],
+}
+```
+
+The JSON output would be consumed by the Golang service and mapped against the DB models. The refectored db models would look as follows:
+
+##### Features
+Column | Type
+--- | ---
+featureId | varchar (uuid) - **PK**
+featureType | smallint
+angle | smallint
+center | text
+vertices | text
+
+__Notes:__ Although Postgress (the db engine we used) has native support for storing and querying JSON data, it was decided to store the data as text as the data was not going to be queried and the overhead of parsing the JSON would have been too high. Furthermore, although Postgress has native support for Enums as well, the featureType column was defined as smalling storing an Enum maintained in the Golang service, elevating the complexity from the db engine to the service.
+
+##### Rooms
+Column | Type
+--- | ---
+roomId | varchar (uuid) - **PK**
+roomName | varchar
+capacity | smallint
+locationId | varchar (uuid) - _FK_
+notes | text
+featureId | varchar (uuid) - _FK_
+
+##### Bookings
+Column | Type
+--- | ---
+bookingId | varchar (uuid) - **PK**
+entityId | varchar (uuid) - _FK_
+featureType | smallint
+userId | varchar (uuid) - _FK_
+bookingStart | timestamp
+bookingEnd | timestamp
+
+##### Desks
+Column | Type
+--- | ---
+deskId | varchar (uuid) - **PK**
+featureId | varchar (uuid) - _FK_
+locationId | varchar (uuid) - _FK_
+
+##### Amenities
+Column | Type
+--- | ---
+amenityId | varchar (uuid) - **PK**
+amenityTypeId | varchar (uuid) - _FK_
+entityId | varchar (uuid) - _FK_
+
+##### Amenities Types
+Column | Type
+--- | ---
+amenityTypeId | varchar (uuid) - **PK**
+amenityTypeName | varchar
+featureType | smallint
+
+__Notes:__ The Amenities and Amenities Types tables were introduced to allow for the customization of the amenities per room and desk. The Amenities Types table would be populated with the default amenities and the Amenities table would be populated with the amenities per room and desk. The Amenities Types table would be used to populate the UI with the available amenities  allowing for searching/filtering and the Amenities table would be used to populate the UI with the amenities per room and desk.
+
+#### 2.3. Estimates
+The initial estimate suggested I would need 1 month to explore and understand OpenCV and produce a working prototype and 3 months to produce an MVP. 
+
+---
+
+### 3. Implementation
+
+#### 3.1. BE - Masking the input image
+The first step was to mask the input image to allow for easier processing and object type identification. The masking was done using the following steps:
+
+1. In order for the script to identify geometry within the image, the following colors need to be used to identify the shapes:
+
+Zone of Interest | Color | RGB Code | Hex Code
+--- | --- | --- | ---
+Bounding Walls | Red | rgb(255,0,0) | #FF0000
+Banks of Desks | Blue | rgb(0,0,255) | #0000FF
+Collaboration Areas | Green | rgb(0,255,0)| #00FF00
+Meeting Rooms | Orange | rgb(255,165,0)| #FFA500
+Zones of Interest | Purple | rgb(128,0,128) | #800080
+
+2. The following function was used to generate masks for each of the colors:
+
+```python
+def generateColorMask(base_bgr, frame):
+
+    lower_range = np.array([max(0, base_bgr[i] - constants.COLOR_MASK_LEEWAY) for i in range(3)])
+    upper_range = np.array([min(255, base_bgr[i] + constants.COLOR_MASK_LEEWAY) for i in range(3)])
+
+    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+	# Create a mask for the desired color range
+    mask = cv2.inRange(frame_bgr, lower_range, upper_range)
+
+    mask = mask.astype(np.uint8)*255
+
+    return mask
+```
+
+__Notes:__ the ```constants.COLOR_MAST_LEEWAY``` was set to 50 to allow for some leeway in the color range. This was needed as the colors in the image were not absolutely precise and the leeway allowed for better identification of the shapes.
+
+3. The masked image was then processed by the following script which identified any contours of interest, parsed out any artefacts such as contours that were generated by the algorithm itself, or contours that didn't meet the base critera for length: 
+
+```python
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+
+    # get only contours with hierarchy 1
+    contours = [contours[i] for i in range(len(contours)) if hierarchy[0][i][3] != -1]
+    
+    # get only contours with more than 5 points
+    contours = [contour for contour in contours if len(contour) > 5]
+```
+
+__Notes:__ the function ```findContours``` accepts a mode parameter which dictates to the function how to organize the identified contours. In our use case the best mode was the ```RETR_CCOMP``` which organizes the contours in a 2 level hierarchy. The first level contains the outer contours of the shapes and the second level contains the contours of the holes within the shapes. The ```CHAIN_APPROX_NONE``` parameter dictates the algorithm to return all the points of the contours allowing for complex shapes such as __curves__ and __complex polygons__.
+
+#### 3.2. BE - Contour processing
+
+Each contour was then processed the relevant information was extracted/optimized: 
+
+```python 
+
+    for idx, contour in enumerate(contours):
+        (x,y),(w,h),angle = approximationType == "ellipse" and cv2.fitEllipseDirect(contour) or cv2.minAreaRect(contour)
+        polygon = np.array([contour[:, 0, :]])
+        [x1,y1,tw,th] = lir_within_polygon.largest_interior_rectangle(polygon)
+        midX1 = x1 + tw/2
+        midY1 = y1 + th/2
+        angle = math.floor(angle)
+
+        contours[idx] = {"id": str(uuid.uuid4()), "angle": int(angle), "center": {"x": int(x), "y": int(y)}, "innerRect": {"width": int(tw), "height": int(th), "x": int(midX1), "y": int(midY1)}}
+        if(approximationType=="rect"):
+            contours[idx]["width"] = int(w)
+            contours[idx]["height"] = int(h)
+
+        if optimise_vertices:
+            contour_mask = np.zeros(mask.shape, np.uint8)
+            contour_mask = cv2.fillPoly(contour_mask, pts=[contour], color=(255, 255, 255))
+            corners = cv2.goodFeaturesToTrack(image=contour_mask, maxCorners=25, qualityLevel=0.3, minDistance=15)
+            contours[idx]["vertices"] = sortCorners(contour, [[int(c[0]), int(c[1])] for c in corners[:, 0, :]])
+        else:
+            contours[idx]["vertices"] = contour[:, 0, :]
+        getMinXY(contours[idx]["vertices"])
+        contours[idx]["area"] = int(cv2.contourArea(np.array(contours[idx]["vertices"])))
+        contours[idx]["vertices"] = [{'x': int(sublist[0]), 'y': int(sublist[1])} for sublist in contours[idx]["vertices"]]
+
+    if name not in contoursCache.keys():
+        contoursCache[name] = contours
+```
+
+__Notes:__ The ```approximationType``` was dictated by the feature that was currently being extracted - if it was a __desk__ it would a __rectangle__ and otherwise it would default to an __ellipse__. The ```optimise_vertices``` flag was used to dictate whether the vertices of the contour should be optimized or not. The optimization was a feature that was developed at a later stage when it was identified that for shapes that don't contain curves, the script could produce a much smaller set of vertice coordinates. The optimization itself done by using the ```goodFeaturesToTrack``` function which identifies the corners of the contour and then sorts them in a clockwise fashion. The ```getMinXY``` function was used to identify the top left corner of the contour of each contour, keep a global track of those coordinates for later use as a translation basis of all contour vertices in order to remove any unnecessary padding from the produced data set. The ```area``` was calculated using the ```contourArea``` function which calculates the area of the contour using the Green's theorem and was used after all contours have been identified to sort them in an ascending order for the largest having the smallest "z-index". This reduced the risk of incorrectly ordering the polygins when drawing them on the SVG in the UX.
