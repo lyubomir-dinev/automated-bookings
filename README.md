@@ -122,7 +122,6 @@ The Python script would produce an output similar to the following format:
 		},
 		...
 	],
-	"collaboration_areas": [],
 	"meeting_rooms": [
 		{
 			"id": "392745fd-c7a3-4ebd-88b4-ed6fc7c7c346",
@@ -131,19 +130,6 @@ The Python script would produce an output similar to the following format:
 			"vertices": [
 				{ "x": 6122, "y": 4298 },
 				{ "x": 6123, "y": 4298 },
-				...
-			]
-		},
-		...
-	],
-	"zones_of_interest": [
-		{
-			"id": "392745fd-c7a3-4ebd-88b4-ed6fc7c7c346",
-			"center": { "x": 4540.28955078125, "y": 5284.7392578125 },
-			"angle": 0,
-			"vertices": [
-				{ "x": 4429, "y": 5026 },
-				{ "x": 4431, "y": 5026 },
 				...
 			]
 		},
@@ -224,9 +210,7 @@ Zone of Interest | Color | RGB Code | Hex Code
 --- | --- | --- | ---
 Bounding Walls | Red | rgb(255,0,0) | #FF0000
 Banks of Desks | Blue | rgb(0,0,255) | #0000FF
-Collaboration Areas | Green | rgb(0,255,0)| #00FF00
 Meeting Rooms | Orange | rgb(255,165,0)| #FFA500
-Zones of Interest | Purple | rgb(128,0,128) | #800080
 
 2. The following function was used to generate masks for each of the colors:
 
